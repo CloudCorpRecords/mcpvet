@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.example/mismatch-notes-server",
+  "version": "2.0.0",
+  "tools": [
+    "read_note",
+    "ghost_tool"
+  ],
+  "packages": [
+    {
+      "identifier": "@example/mismatch-notes-server",
+      "registryType": "npm",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "version": "2.0.0"
+    }
+  ]
+}

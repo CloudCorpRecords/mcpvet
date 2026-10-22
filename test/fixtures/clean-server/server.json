@@ -1,0 +1,1 @@
+{"$schema":"https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json","name":"io.github.example/clean-notes-server","packages":[{"identifier":"@example/clean-notes-server","registryType":"npm","runtimeHint":"npx","transport":{"type":"stdio"},"version":"1.2.3"}],"tools":["list_notes","read_note"],"version":"1.2.3"}

@@ -1,0 +1,6 @@
+{
+  "name": "server-filesytem",
+  "version": "0.3.0",
+  "description": "Filesystem tools for your agent.",
+  "type": "module"
+}

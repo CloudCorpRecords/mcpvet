@@ -1,0 +1,69 @@
+# mcpvet
+
+Vet MCP servers and agent skills before you install them.
+
+In early 2026 the ClawHavoc wave put 1,184 malicious skills on a public skill marketplace from just 12 accounts: credential stealers and reverse shells dressed up as helpful agent skills, inheriting whatever permissions the agent itself had. Only a small minority of organizations audit the MCP servers they install, and almost none audit skill packs. The install click is the trust decision, and it usually happens with no evidence at all.
+
+mcpvet is the pre-install check. Point it at a local MCP server directory, a SKILL.md skill directory, a client config tree, or an npm package name, and it returns a deterministic verdict with evidence for every finding: VETTED, REVIEW, or DO-NOT-INSTALL. The scan is static only. Scanned code is read as text and never executed, imported, or installed.
+
+## Install
+
+```
+npx -y @reneturcios/mcpvet --version
+npm install -g @reneturcios/mcpvet
+docker run -i --rm ghcr.io/cloudcorprecords/mcpvet mcp
+```
+
+## Quick start
+
+```
+mcpvet vet ~/src/some-mcp-server
+mcpvet vet ~/skills/some-skill --json
+mcpvet vet-package @modelcontextprotocol/server-filesystem@2025.3.28
+mcpvet mcp
+```
+
+CLI exit codes: 0 when the verdict is VETTED, 1 for REVIEW or DO-NOT-INSTALL, 2 for a usage or setup error, 141 when the reader closed the output pipe before the report was delivered.
+
+## What it checks
+
+| Check | What it catches |
+| --- | --- |
+| Tool inventory | Declared tools (server.json, package.json, tool manifests) against tools actually registered in source, plus resources and prompts |
+| Capability combos | Filesystem read plus network egress, env access plus egress, credential store access plus egress, shell execution reachable from the tool surface |
+| Config audit | Client configs (claude_desktop_config.json, .mcp.json, Cursor and VS Code mcp.json): autostart entries, npx -y on unpinned packages, curl pipe shell launchers, shell wrappers, wide env blocks sweeping in credential-shaped keys, whole-environment passthrough |
+| Install scripts | preinstall, install, postinstall, and prepare scripts in package.json, with dropper shapes (remote download piped to a shell) graded critical |
+| Bundled scripts | Reverse shell shapes, one file that both reads a credential store and makes network requests, persistence touches (session hooks, scheduled tasks, autostart entries), download-and-execute droppers |
+| Description language | Tool descriptions, package descriptions, and SKILL.md text carrying instruction or exfiltration language: override prior instructions, hide actions from the user, send credential material onward, run shell commands from prose |
+| Mismatches | Declared tools missing from code, undeclared tools present in code, server.json and package.json disagreeing on name or version |
+| Pinning | Missing version fields, moving tags such as latest or *, registry entries with no version, unpinned container references |
+| Typosquat | Target and package names at edit distance 1 (or 2 for long names) from a bundled list of well-known MCP server names |
+
+## Verdict rules
+
+- DO-NOT-INSTALL: at least one critical finding. Reverse shells, credential stealers, install droppers, and curl pipe shell autostarts land here.
+- REVIEW: at least one high or medium finding and no criticals. Dangerous capability combos, undeclared tools, typosquats, env harvesting configs, and unpinned autostarts land here.
+- VETTED: no critical, high, or medium findings. Info and low findings (such as the autostart inventory itself) are still reported as evidence.
+
+A verdict is a scan result, never a safety claim. VETTED means these checks found nothing at or above medium severity in the files scanned; it does not certify a server safe.
+
+## MCP
+
+`mcpvet mcp` serves a stdio MCP server with two tools:
+
+| Tool | What it does |
+| --- | --- |
+| vet_path | Vet a local MCP server directory, skill directory, or client config tree before install |
+| vet_package | Vet an npm package by name using registry metadata only: the tarball is not downloaded and no code runs |
+
+## Scope and limits
+
+- Static analysis only, by design. mcpvet never executes, imports, or installs the target, and vet_package never downloads the tarball. Behavior that only appears at runtime is out of scope; vet the extracted directory for capability and inventory checks.
+- Tool inventory is pattern-based: tools registered through shapes the scanner does not recognize (dynamic registration, generated code) can be missed, which is why a declared manifest with no matching registrations is itself a finding.
+- The walk caps at 2,000 files and 512 KiB per file. Anything skipped is counted and reported in the report's caps block, never silently dropped.
+- The typosquat list is a bundled snapshot of well-known MCP server names, not the live registry.
+- Pattern literals are indistinguishable from payloads in a static text scan: the source of a security scanner (or a test fixture corpus) contains the very shapes it detects, so vetting detector tooling flags its own pattern strings (observed on the Security Wave factory repos themselves, where every such critical was hand-verified as a pattern literal or a planted fixture). Treat verdicts on scanner source as REVIEW-grade evidence, not as a compromise claim.
+
+Part of the Security Wave: hookcheck (persistence hooks), actionpin (Actions pinning), injectcheck (prompt injection in agent-read content), tracewatch (observability and root cause), mcpvet (pre-install vetting).
+
+MIT.

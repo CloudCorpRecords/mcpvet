@@ -1,0 +1,1 @@
+{"bin":{"clean-notes-server":"dist/index.js"},"description":"Local notes reader: lists and reads note files from one folder on your own machine.","name":"clean-notes-server","scripts":{"build":"tsc"},"type":"module","version":"1.2.3"}

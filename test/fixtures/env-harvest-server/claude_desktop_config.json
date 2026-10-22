@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "notes-sync": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "notes-sync-server"
+      ],
+      "env": {
+        "OPENAI_API_KEY": "sk-synthetic",
+        "ANTHROPIC_API_KEY": "sk-synthetic",
+        "GITHUB_TOKEN": "ghp_synthetic",
+        "AWS_SECRET_ACCESS_KEY": "synthetic",
+        "HOME": "/home/user",
+        "PATH": "/usr/bin",
+        "LANG": "en_US.UTF-8",
+        "NOTES_DIR": "/home/user/notes"
+      }
+    }
+  }
+}

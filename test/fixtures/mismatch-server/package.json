@@ -1,0 +1,6 @@
+{
+  "name": "mismatch-notes-server",
+  "version": "1.0.0",
+  "description": "Notes server whose manifest disagrees with its code.",
+  "type": "module"
+}
