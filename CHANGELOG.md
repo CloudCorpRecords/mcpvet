@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2 (2026-10-23)
+
+Fix for a verdict-level false positive found by fresh-estate production validation (S4-1).
+
+- Fixed: `vet` on a repo root that is not an MCP package returned DO-NOT-INSTALL driven by unrelated application code (an HTTP client's own credential/network code; a monorepo's CLI source and test files). The tool accepted the target, classified it `unknown` (or `mixed` at a monorepo root), and still issued its harshest verdict instead of declining to condemn a non-target.
+- Scope floor: when the target has no MCP server, client config, or skill as its primary subject (kind `unknown`), or when a `mixed` monorepo root's critical findings all come from outside every identified MCP bundle, the verdict floors at REVIEW with an explicit "not an MCP target / scope to the server or skill directory" note. Findings are still reported as evidence; only the verdict is floored.
+- Scoped vetting keeps its teeth: criticals inside an identified bundle still verdict DO-NOT-INSTALL (the ClawHavoc-shaped evil-skill fixture and a malicious skill nested in a mixed tree both still condemn).
+- Regression tests: httpie-like plain-app fixture floors at REVIEW, mixed-monorepo fixture with out-of-bundle criticals floors at REVIEW, mixed-evil fixture still DO-NOT-INSTALL.
+
 ## 0.1.1 (2026-10-22)
 
 Emergency repair for a genuine detection gap found by incident validation.

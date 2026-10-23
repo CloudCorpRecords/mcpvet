@@ -48,6 +48,8 @@ CLI exit codes: 0 when the verdict is VETTED, 1 for REVIEW or DO-NOT-INSTALL, 2 
 
 A verdict is a scan result, never a safety claim. VETTED means these checks found nothing at or above medium severity in the files scanned; it does not certify a server safe.
 
+Scope floor (v0.1.2): DO-NOT-INSTALL is a claim about an installable MCP bundle. If the target is not an MCP target — kind `unknown` (no server, config, or skill as its primary subject), or a `mixed` monorepo root whose critical findings all come from outside every identified MCP bundle — the verdict floors at REVIEW with an explicit "not an MCP target" note telling you to scope vetting to the server or skill directory. Findings are still reported as evidence; a critical inside an identified bundle still verdicts DO-NOT-INSTALL.
+
 ## MCP
 
 `mcpvet mcp` serves a stdio MCP server with two tools:
