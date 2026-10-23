@@ -18,7 +18,7 @@ import type {
 } from "./types.js";
 import { CREDENTIAL_ENV_RE, CREDENTIAL_STORE_RE, typosquatMatch } from "./known.js";
 
-export const VERSION = "0.1.1";
+export const VERSION = "0.1.2";
 
 export const MAX_FILES = 2000;
 const MAX_FILE_BYTES = 512 * 1024;
@@ -737,9 +737,46 @@ export function vetPath(rootInput: string): VetReport {
     }
   }
 
+  // S4-1 scope floor: a verdict of DO-NOT-INSTALL is a claim about an
+  // installable MCP bundle (a server, a client config, or a skill). When
+  // the target has no MCP subject at all (kind "unknown"), or when a
+  // monorepo root classifies "mixed" only because a bundle sits somewhere
+  // inside it while the critical findings come from application code
+  // outside every identified bundle, the harshest verdict is a false
+  // condemnation of code that was never an MCP target. Floor the verdict
+  // at REVIEW and say so; the findings themselves stay as evidence.
+  // Scoped vetting keeps its teeth: a critical inside an identified
+  // bundle (or in a kind server/skill/package target) still condemns.
+  let verdictCeiling: "REVIEW" | null = null;
+  if (kind === "unknown") {
+    verdictCeiling = "REVIEW";
+    notes.push(
+      "Not an MCP target: no MCP server, client config, or skill is the primary subject of this directory, so findings from general application code cannot condemn it. Verdict floored at REVIEW; scope vetting to the server or skill directory.",
+    );
+  } else if (kind === "mixed") {
+    const anchorDirs = new Set<string>();
+    for (const f of files) {
+      if (basename(f.rel) === "SKILL.md" || basename(f.rel) === "server.json" || isConfigFile(f.rel)) {
+        anchorDirs.add(f.rel.includes("/") ? f.rel.slice(0, f.rel.lastIndexOf("/")) : "");
+      }
+    }
+    const insideBundle = (file: string): boolean =>
+      anchorDirs.has("") || [...anchorDirs].some((a) => a !== "" && (file === a || file.startsWith(`${a}/`)));
+    const criticals = findings.filter((f) => f.severity === "critical");
+    const hasInsideCritical = criticals.some((f) => insideBundle(f.file));
+    const hasOutsideCritical = criticals.some((f) => !insideBundle(f.file));
+    if (hasOutsideCritical && !hasInsideCritical) {
+      verdictCeiling = "REVIEW";
+      notes.push(
+        "Mixed tree: the critical findings come from outside any identified MCP bundle (server, config, or skill directory), so the tree as a whole is not an MCP target for those findings. Verdict floored at REVIEW; scope vetting to the server or skill directory to judge that bundle on its own evidence.",
+      );
+    }
+  }
+
   return finishReport({
     target: rootInput,
     kind,
+    verdictCeiling,
     name: targetName,
     packageVersion: pkgVersion || serverVersion,
     findings,
@@ -758,6 +795,8 @@ export function vetPath(rootInput: string): VetReport {
 interface PartialReport {
   target: string;
   kind: VetReport["kind"];
+  /** S4-1 scope floor: when set, the verdict may not exceed this grade. */
+  verdictCeiling?: "REVIEW" | null;
   name: string;
   packageVersion: string;
   findings: Finding[];
@@ -786,10 +825,11 @@ function finishReport(p: PartialReport): VetReport {
   );
   const counts = { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: findings.length };
   for (const f of findings) counts[f.severity]++;
-  const verdict: VetReport["verdict"] =
+  let verdict: VetReport["verdict"] =
     counts.critical > 0 ? "DO-NOT-INSTALL"
     : counts.high > 0 || counts.medium > 0 ? "REVIEW"
     : "VETTED";
+  if (p.verdictCeiling === "REVIEW" && verdict === "DO-NOT-INSTALL") verdict = "REVIEW";
   return {
     tool: "mcpvet",
     version: VERSION,

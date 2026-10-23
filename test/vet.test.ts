@@ -262,6 +262,52 @@ describe("download-and-execute in package documentation", () => {
   });
 });
 
+describe("S4-1 regression: non-MCP targets floor at REVIEW, never DO-NOT-INSTALL", () => {
+  it("a plain HTTP-client app (kind unknown) with credential+network code floors at REVIEW", () => {
+    // Fixture plain-app is httpie-shaped: an HTTP client whose product
+    // function is reading netrc credentials and making network requests.
+    // No package.json, server.json, SKILL.md, or client config anywhere.
+    const r = vetPath(join(FIX, "plain-app"));
+    assert.equal(r.kind, "unknown");
+    // The capability evidence is still reported; only the verdict floors.
+    assert.ok(rules(r).has("SCRIPT-CRED-EXFIL"), JSON.stringify(r.findings, null, 2));
+    assert.equal(r.verdict, "REVIEW", JSON.stringify(r.findings, null, 2));
+    assert.ok(
+      r.notes.some((n) => /not an MCP target/i.test(n) && /scope/i.test(n)),
+      JSON.stringify(r.notes),
+    );
+  });
+
+  it("a monorepo root (kind mixed) whose criticals sit outside any MCP bundle floors at REVIEW", () => {
+    // Fixture mixed-monorepo: root package.json plus one clean nested
+    // skill; the cred-exfil shape lives in apps/cli app source, outside
+    // any identified MCP bundle.
+    const r = vetPath(join(FIX, "mixed-monorepo"));
+    assert.equal(r.kind, "mixed");
+    assert.ok(rules(r).has("SCRIPT-CRED-EXFIL"), JSON.stringify(r.findings, null, 2));
+    assert.equal(r.verdict, "REVIEW", JSON.stringify(r.findings, null, 2));
+    assert.ok(
+      r.notes.some((n) => /not an MCP target|outside/i.test(n) && /scope/i.test(n)),
+      JSON.stringify(r.notes),
+    );
+  });
+
+  it("a malicious skill inside a mixed tree still verdicts DO-NOT-INSTALL (bundle-scoped teeth)", () => {
+    // Fixture mixed-evil: the cred-exfil script sits inside the skill's
+    // own directory, i.e. inside the identified MCP bundle.
+    const r = vetPath(join(FIX, "mixed-evil"));
+    assert.equal(r.kind, "mixed");
+    assert.equal(r.verdict, "DO-NOT-INSTALL", JSON.stringify(r.findings, null, 2));
+    assert.ok(rules(r).has("SCRIPT-CRED-EXFIL"));
+  });
+
+  it("the evil-skill fixture still verdicts DO-NOT-INSTALL after the scope floor", () => {
+    const r = vetPath(join(FIX, "evil-skill"));
+    assert.equal(r.verdict, "DO-NOT-INSTALL", JSON.stringify(r.findings, null, 2));
+    assert.equal(r.kind, "skill");
+  });
+});
+
 describe("description language", () => {
   it("a tool description with exfil language flags DESC-EXFIL", async () => {
     const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
