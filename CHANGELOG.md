@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4 (2026-10-23)
+
+Security flywheel cycle 001 repair, shipped as a Round 5 follow-on (ledger P-189). The fix was first implemented by the flywheel lane on the 0.1.1 tree and verified locally there, but its ship was blocked and its prepared 0.1.2 version number was taken by the scope floor release; the implementation was recovered from that working clone and ported onto the 0.1.3 tree, with the prebuilds directory trigger and the current walk's skipped file tracking integrated.
+
+- New rule NATIVE-BINARY (medium): a vetted tree shipping compiled native artifacts (.node, .dll, .so, or .dylib files, or a prebuilds directory) now draws a finding and verdicts REVIEW instead of passing silently. Native artifacts are inventoried before the text scan gates (extension, size, and NUL byte checks), because a real compiled binary fails all of those gates by construction. A prebuilds directory whose artifacts are already inventoried draws no second finding; one with no recognized artifact inside it draws exactly one finding for the directory itself.
+- Why: the MALFEX imgdecode campaign (SafeDep, 2026-10-13) hid its payload in a compiled native addon under prebuilds/ loaded at require time, with no install scripts at all; mcpvet 0.1.3 verdicted an inert reconstruction of that tree VETTED with zero findings.
+- Grading is presence only: native code cannot be audited by static text scanning, so its behavior is opaque to the vet, and the finding says so. Presence alone is not evidence of malice (many legitimate packages ship prebuilt addons) and never escalates to DO-NOT-INSTALL on its own; the binary should be reviewed, or the package built from source, before the server is trusted.
+- Regression tests in test/p189.test.ts (7 tests, red first on 0.1.3 code): the prebuilds addon shape, a prebuilds directory on its own, dll and so and dylib artifacts, a binary shaped artifact with NUL bytes over the text size gate, a no-artifact control that stays VETTED with zero findings, a dropper control that stays DO-NOT-INSTALL with exactly one NATIVE-BINARY finding, and a scope floor control proving the S4-1 floor is unchanged. The mcpvet source self-scan is unchanged at 19 findings.
+
 ## 0.1.3 (2026-10-23)
 
 Round 5 repair for three manifest and target handling gaps found by adversarial validation.

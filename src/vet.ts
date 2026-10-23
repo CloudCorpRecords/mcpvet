@@ -18,7 +18,7 @@ import type {
 } from "./types.js";
 import { CREDENTIAL_ENV_RE, CREDENTIAL_STORE_RE, typosquatMatch } from "./known.js";
 
-export const VERSION = "0.1.3";
+export const VERSION = "0.1.4";
 
 export const MAX_FILES = 2000;
 const MAX_FILE_BYTES = 512 * 1024;
@@ -27,6 +27,17 @@ const SCAN_EXTS = new Set([
   ".json", ".md", ".yml", ".yaml", ".toml", ".txt",
 ]);
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
+
+/** Compiled native artifacts: opaque to static text scanning (P-189).
+ * Ported from the security flywheel cycle 001 fix, which was built and
+ * verified locally on the 0.1.1 tree in ~/workspace/github-builds/mcpvet-fix
+ * but never shipped (its 0.1.2 version number was taken by the scope
+ * floor release). */
+const NATIVE_EXTS = new Set([".node", ".dll", ".so", ".dylib"]);
+
+function isNativeArtifact(rel: string): boolean {
+  return NATIVE_EXTS.has(extname(rel).toLowerCase());
+}
 
 const SEV_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"];
 
@@ -37,8 +48,10 @@ interface FileText {
   lines: string[];
 }
 
-function walk(root: string): { files: FileText[]; scanned: number; skipped: number; truncated: boolean; skippedDetails: { rel: string; reason: string }[] } {
+function walk(root: string): { files: FileText[]; scanned: number; skipped: number; truncated: boolean; skippedDetails: { rel: string; reason: string }[]; native: string[]; prebuildsDirs: string[] } {
   const out: FileText[] = [];
+  const native: string[] = [];
+  const prebuildsDirs: string[] = [];
   const skippedDetails: { rel: string; reason: string }[] = [];
   let skipped = 0;
   let truncated = false;
@@ -72,13 +85,22 @@ function walk(root: string): { files: FileText[]; scanned: number; skipped: numb
         continue;
       }
       if (st.isDirectory()) {
-        if (!SKIP_DIRS.has(e)) stack.push(p);
+        if (!SKIP_DIRS.has(e)) {
+          stack.push(p);
+          if (e === "prebuilds") prebuildsDirs.push(relative(root, p) || basename(p));
+        }
         continue;
       }
       if (!st.isFile()) {
         if (e === "package.json" || e === "server.json") noteSkipped(p, "is not a regular file");
         continue;
       }
+      // Native artifacts are inventoried before every text scan gate
+      // below (extension, size, NUL byte): a real compiled binary fails
+      // all of those gates by construction, and its presence is exactly
+      // the signal this inventory exists to record (P-189).
+      const relForNative = relative(root, p) || basename(p);
+      if (isNativeArtifact(relForNative)) native.push(relForNative);
       if (!SCAN_EXTS.has(extname(e).toLowerCase()) && e !== "SKILL.md" && !e.startsWith(".")) {
         // Extensionless scripts (bin shims, hooks) are still audited.
         if (st.size > 64 * 1024) { noteSkipped(p, "exceeds the extensionless file size limit"); continue; }
@@ -109,7 +131,9 @@ function walk(root: string): { files: FileText[]; scanned: number; skipped: numb
     }
   }
   out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
-  return { files: out, scanned: out.length, skipped, truncated, skippedDetails };
+  native.sort();
+  prebuildsDirs.sort();
+  return { files: out, scanned: out.length, skipped, truncated, skippedDetails, native, prebuildsDirs };
 }
 
 function firstHit(lines: string[], re: RegExp): { line: number; evidence: string } | null {
@@ -479,9 +503,38 @@ export function vetPath(rootInput: string): VetReport {
   }
   const findings: Finding[] = [];
   const notes: string[] = [];
-  const { files, scanned, skipped, truncated, skippedDetails } = walk(root);
+  const { files, scanned, skipped, truncated, skippedDetails, native, prebuildsDirs } = walk(root);
   if (truncated) {
     notes.push(`File walk hit the cap of ${MAX_FILES} files; the remainder was not scanned. The cap is reported, not silent.`);
+  }
+  // Compiled native artifacts (P-189, ported from the flywheel cycle
+  // 001 fix): presence is the signal. Native code cannot be audited by
+  // static text scanning, so a vetted tree shipping it can never be a
+  // clean bill of health; the finding is medium, which floors the
+  // verdict at REVIEW through the ordinary verdict rules, and presence
+  // alone never escalates to DO-NOT-INSTALL, because legitimate native
+  // packages exist. The rule claims nothing about the binary's
+  // behavior, which is not statically analyzable.
+  const nativeDetail = "The package ships a compiled native binary. Native code cannot be audited by static text scanning, so its behavior is opaque to this vet; code loaded from it runs with the user's full permissions. Presence alone is not evidence of malice (many legitimate packages ship prebuilt addons), but the binary should be reviewed, or the package built from source, before the server is trusted. The MALFEX imgdecode campaign hid its payload in exactly this shape: a native addon under prebuilds/ loaded at require time, with no install scripts at all (P-189).";
+  for (const rel of native) {
+    findings.push({
+      rule: "NATIVE-BINARY", severity: "medium", file: rel, line: 0,
+      evidence: `compiled native artifact shipped in package: ${rel}`,
+      detail: nativeDetail,
+    });
+  }
+  for (const rel of prebuildsDirs) {
+    // A prebuilds directory whose binaries are already inventoried
+    // above draws no second finding; a prebuilds directory with no
+    // recognized artifact inside it (empty, or holding a build for an
+    // unrecognized platform shape) is itself the presence signal, so
+    // it draws exactly one finding for the directory.
+    if (native.some((n) => n === rel || n.startsWith(`${rel}/`))) continue;
+    findings.push({
+      rule: "NATIVE-BINARY", severity: "medium", file: rel, line: 0,
+      evidence: `prebuilds directory shipped in package: ${rel}`,
+      detail: nativeDetail,
+    });
   }
 
   const byRel = new Map(files.map((f) => [f.rel, f]));
