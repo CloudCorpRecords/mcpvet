@@ -6,7 +6,7 @@
  * VetReport. Scanned code is only ever read as text; nothing is executed,
  * imported, or installed.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, relative, resolve } from "node:path";
 import type {
   CapabilityHit,
@@ -18,7 +18,7 @@ import type {
 } from "./types.js";
 import { CREDENTIAL_ENV_RE, CREDENTIAL_STORE_RE, typosquatMatch } from "./known.js";
 
-export const VERSION = "0.1.2";
+export const VERSION = "0.1.3";
 
 export const MAX_FILES = 2000;
 const MAX_FILE_BYTES = 512 * 1024;
@@ -37,10 +37,15 @@ interface FileText {
   lines: string[];
 }
 
-function walk(root: string): { files: FileText[]; scanned: number; skipped: number; truncated: boolean } {
+function walk(root: string): { files: FileText[]; scanned: number; skipped: number; truncated: boolean; skippedDetails: { rel: string; reason: string }[] } {
   const out: FileText[] = [];
+  const skippedDetails: { rel: string; reason: string }[] = [];
   let skipped = 0;
   let truncated = false;
+  const noteSkipped = (p: string, reason: string) => {
+    skipped++;
+    skippedDetails.push({ rel: relative(root, p) || basename(p), reason });
+  };
   const stack: string[] = [root];
   const dirs: string[] = [];
   // Deterministic breadth order: collect dirs sorted, then files sorted.
@@ -59,44 +64,52 @@ function walk(root: string): { files: FileText[]; scanned: number; skipped: numb
       try {
         st = statSync(p);
       } catch {
-        skipped++;
+        noteSkipped(p, "could not be stat-ed");
         continue;
       }
       if (st.isSymbolicLink()) {
-        skipped++;
+        noteSkipped(p, "is a symbolic link");
         continue;
       }
       if (st.isDirectory()) {
         if (!SKIP_DIRS.has(e)) stack.push(p);
         continue;
       }
-      if (!st.isFile()) continue;
+      if (!st.isFile()) {
+        if (e === "package.json" || e === "server.json") noteSkipped(p, "is not a regular file");
+        continue;
+      }
       if (!SCAN_EXTS.has(extname(e).toLowerCase()) && e !== "SKILL.md" && !e.startsWith(".")) {
         // Extensionless scripts (bin shims, hooks) are still audited.
-        if (st.size > 64 * 1024) { skipped++; continue; }
+        if (st.size > 64 * 1024) { noteSkipped(p, "exceeds the extensionless file size limit"); continue; }
       }
       if (out.length >= MAX_FILES) {
         truncated = true;
-        skipped++;
+        noteSkipped(p, "the file walk cap was reached");
+        continue;
+      }
+      if ((st.mode & 0o444) === 0) {
+        noteSkipped(p, "could not be read (no read permission)");
         continue;
       }
       if (st.size > MAX_FILE_BYTES) {
-        skipped++;
+        noteSkipped(p, `size ${st.size} bytes exceeds the per-file size cap of ${MAX_FILE_BYTES} bytes`);
         continue;
       }
       let text: string;
       try {
         text = readFileSync(p, "utf8");
-      } catch {
-        skipped++;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code ?? "read error";
+        noteSkipped(p, `could not be read (${code})`);
         continue;
       }
-      if (text.includes("\u0000")) { skipped++; continue; }
+      if (text.includes("\u0000")) { noteSkipped(p, "contains a NUL byte"); continue; }
       out.push({ rel: relative(root, p) || basename(p), abs: p, text, lines: text.split(/\r?\n/) });
     }
   }
   out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
-  return { files: out, scanned: out.length, skipped, truncated };
+  return { files: out, scanned: out.length, skipped, truncated, skippedDetails };
 }
 
 function firstHit(lines: string[], re: RegExp): { line: number; evidence: string } | null {
@@ -114,16 +127,27 @@ const CAP_PATTERNS: { kind: CapabilityHit["kind"]; re: RegExp }[] = [
   { kind: "credential", re: CREDENTIAL_STORE_RE },
 ];
 
-/** Instruction and exfil language patterns for descriptions and SKILL.md. */
+/** Instruction and exfil language patterns for descriptions and SKILL.md.
+ * The bounded spans in the DESC-EXFIL patterns are dot tolerant inside
+ * a token: a dot followed by a non-space character is part of a path
+ * or host name (~/.aws, ~/.ssh, .env, a collector URL), while a dot
+ * followed by a space or the end of the text is a sentence boundary
+ * and still ends the span. The plain [^.\n] spans used before P-187
+ * could never cross the dots inside the very credential paths the
+ * patterns name, so a read of ~/.aws/credentials paired with a send
+ * could not match at any distance, and the noun group boundary is a
+ * lookbehind rather than a word boundary for the same reason: an
+ * alternative starting with ~ or . has no word boundary after a
+ * space or a slash. */
 const DESC_PATTERNS: { rule: string; severity: Severity; re: RegExp; detail: string }[] = [
   {
     rule: "DESC-EXFIL", severity: "high",
-    re: /\b(send|post|upload|forward|transmit|deliver|exfiltrate)\b[^.\n]{0,100}\b(contents? of|credential|secret|token|api[ _-]?key|password|\.env\b|environment variable)/i,
+    re: /\b(send|post|upload|forward|transmit|deliver|exfiltrate)\b(?:[^.\n]|\.(?=\S)){0,100}(?<![A-Za-z0-9_])(contents? of|credential|secret|token|api[ _-]?key|password|\.env\b|environment variable)/i,
     detail: "Text instructs sending credential material or file contents to another destination.",
   },
   {
     rule: "DESC-EXFIL", severity: "high",
-    re: /\b(contents? of|read|cat|collect|gather)\b[^.\n]{0,60}\b(\.env\b|~\/\.ssh|~\/\.aws|credentials|id_rsa)\b[^.\n]{0,80}\b(send|post|upload|forward|transmit|http)/i,
+    re: /\b(contents? of|read|cat|collect|gather)\b(?:[^.\n]|\.(?=\S)){0,60}(?<![A-Za-z0-9_])(\.env\b|~\/\.ssh|~\/\.aws|credentials|id_rsa)\b(?:[^.\n]|\.(?=\S)){0,80}\b(send|post|upload|forward|transmit|http)/i,
     detail: "Text pairs reading credential stores with sending the contents onward.",
   },
   {
@@ -150,7 +174,10 @@ const DESC_PATTERNS: { rule: string; severity: Severity; re: RegExp; detail: str
 
 function parseJsonSafe(text: string): Record<string, unknown> | null {
   try {
-    const v = JSON.parse(text);
+    // A leading UTF-8 byte order mark is a one-byte editor artifact, not
+    // content: strip it before parsing so a BOM-prefixed manifest is
+    // audited like any other manifest instead of being treated as absent.
+    const v = JSON.parse(text.replace(/^\uFEFF/, ""));
     return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
   } catch {
     return null;
@@ -338,6 +365,7 @@ function scanScriptShapes(
 ): void {
   const kinds = new Set(capsHere.map((c) => c.kind));
   const t = f.text;
+  let reverseShellFired = false;
   if (/\/dev\/tcp\/|bash\s+-i\s+>&|nc\s+(-e|--exec)\b|socket[^\n]*dup2|pty\.spawn/.test(t)) {
     findings.push({
       rule: "SCRIPT-REVERSE-SHELL", severity: "critical", file: f.rel,
@@ -345,6 +373,27 @@ function scanScriptShapes(
       evidence: (firstHit(f.lines, /\/dev\/tcp\/|bash\s+-i\s+>&|nc\s+(-e|--exec)\b|dup2|pty\.spawn/) ?? { evidence: "" }).evidence,
       detail: "Bundled script has the shape of a reverse shell: an interactive shell bound to a network socket.",
     });
+    reverseShellFired = true;
+  }
+  // The same reverse shell composed from parts instead of one literal
+  // shape (P-186): a socket connection, a spawned shell, and a pipe
+  // joining them, with no /dev/tcp, nc -e, or dup2 text anywhere. Each
+  // part alone is ordinary (a socket client, a local shell spawn, a
+  // stream pipe); the composition is the reverse shell, so it grades
+  // critical like the literal shapes above. A socket with no shell
+  // pipe, or a shell spawn with no socket, does not fire this.
+  if (!reverseShellFired) {
+    const hasSocketConnect = /\bnet\.(?:connect|createConnection)\s*\(|\bcreateConnection\s*\(|socket\.connect\s*\(|new\s+Socket\s*\(/.test(t);
+    const shellSpawnHit = firstHit(f.lines, /(?:spawn|execFile|execSync|exec|Popen)\s*\([^)]*['"`](?:[^'"`]*\/)?(?:sh|bash|zsh|dash)['"`]/);
+    const hasPipe = /\.pipe\s*\(/.test(t);
+    if (hasSocketConnect && shellSpawnHit && hasPipe) {
+      findings.push({
+        rule: "SCRIPT-REVERSE-SHELL", severity: "critical", file: f.rel,
+        line: shellSpawnHit.line,
+        evidence: shellSpawnHit.evidence,
+        detail: "Bundled script composes a reverse shell from parts: it opens a network socket, spawns a shell, and pipes the shell streams into the socket, so whoever controls the remote end gets an interactive shell on this machine.",
+      });
+    }
   }
   if (kinds.has("credential") && kinds.has("network")) {
     findings.push({
@@ -416,9 +465,21 @@ function scanDownloadExec(findings: Finding[], f: FileText): void {
 
 export function vetPath(rootInput: string): VetReport {
   const root = resolve(rootInput);
+  // A non-directory target is a usage error, matching the factory
+  // siblings: a FIFO, a device, or a regular file must never receive
+  // the cleanest verdict for a directory that was never scanned.
+  let rootStat;
+  try {
+    rootStat = statSync(root);
+  } catch {
+    throw new Error(`Target does not exist or cannot be accessed: ${rootInput}`);
+  }
+  if (!rootStat.isDirectory()) {
+    throw new Error(`Target is not a directory: ${rootInput}`);
+  }
   const findings: Finding[] = [];
   const notes: string[] = [];
-  const { files, scanned, skipped, truncated } = walk(root);
+  const { files, scanned, skipped, truncated, skippedDetails } = walk(root);
   if (truncated) {
     notes.push(`File walk hit the cap of ${MAX_FILES} files; the remainder was not scanned. The cap is reported, not silent.`);
   }
@@ -430,11 +491,62 @@ export function vetPath(rootInput: string): VetReport {
   const serverJson = serverJsonFile ? parseJsonSafe(serverJsonFile.text) : null;
   const skillFile = files.find((f) => basename(f.rel) === "SKILL.md");
 
-  const kind: VetReport["kind"] = skillFile && (pkg || serverJson)
+  // Manifest presence is tracked honestly in three states: absent,
+  // present and read, and present but unreadable, unparseable, or
+  // skipped. A present manifest that could not be audited must never
+  // be reported as absent, and it floors the verdict at REVIEW through
+  // a medium finding, following the factory partial-scan doctrine: a
+  // scan that did not see a named manifest is a partial scan.
+  interface ManifestProblem { file: string; rule: "MANIFEST-UNPARSEABLE" | "MANIFEST-UNREADABLE"; reason: string }
+  const manifestProblems: ManifestProblem[] = [];
+  let manifestPresent = false;
+  for (const name of ["package.json", "server.json"] as const) {
+    let lst: ReturnType<typeof lstatSync> | null = null;
+    try {
+      lst = lstatSync(join(root, name));
+    } catch {
+      lst = null;
+    }
+    if (!lst) continue;
+    manifestPresent = true;
+    const fileObj = byRel.get(name);
+    if (!fileObj) {
+      let reason: string;
+      if (lst.isSymbolicLink()) reason = "a symbolic link that was skipped";
+      else if (lst.isDirectory()) reason = "a directory, not a regular file";
+      else if (!lst.isFile()) reason = "not a regular file";
+      else if ((lst.mode & 0o444) === 0) reason = "could not be read (no read permission) and was skipped";
+      else if (lst.size > MAX_FILE_BYTES) reason = `size ${lst.size} bytes exceeds the per-file size cap of ${MAX_FILE_BYTES} bytes and was skipped`;
+      else {
+        const detail = skippedDetails.find((d) => d.rel === name);
+        reason = detail ? `${detail.reason} and was skipped` : "was skipped during the scan and could not be read";
+      }
+      manifestProblems.push({ file: name, rule: "MANIFEST-UNREADABLE", reason });
+    } else {
+      const parsed = name === "package.json" ? pkg : serverJson;
+      if (!parsed) {
+        manifestProblems.push({ file: name, rule: "MANIFEST-UNPARSEABLE", reason: "could not be parsed as a JSON object" });
+      }
+    }
+  }
+  for (const problem of manifestProblems) {
+    findings.push({
+      rule: problem.rule, severity: "medium", file: problem.file, line: 0,
+      evidence: `${problem.file}: ${problem.reason}`,
+      detail: problem.rule === "MANIFEST-UNPARSEABLE"
+        ? "A manifest file is present but unparseable, so its install scripts, name, version, and declared tools could not be audited. The scan is partial and the verdict is floored at REVIEW: fix the manifest or read it by hand before treating this target as vetted."
+        : "A manifest file is present but unreadable or skipped, so its install scripts, name, version, and declared tools could not be audited. The scan is partial and the verdict is floored at REVIEW: read the manifest by hand before treating this target as vetted.",
+    });
+    notes.push(problem.rule === "MANIFEST-UNPARSEABLE"
+      ? `${problem.file} is present but unparseable: ${problem.reason}. The manifest was not treated as absent, and the verdict cannot be VETTED while it cannot be audited.`
+      : `${problem.file} is present but unreadable or skipped: ${problem.reason}. The manifest was not treated as absent, and the verdict cannot be VETTED while it cannot be audited.`);
+  }
+
+  const kind: VetReport["kind"] = skillFile && (pkg || serverJson || manifestPresent)
     ? "mixed"
     : skillFile
       ? "skill"
-      : pkg || serverJson
+      : pkg || serverJson || manifestPresent
         ? "server"
         : files.some((f) => isConfigFile(f.rel))
           ? "server"

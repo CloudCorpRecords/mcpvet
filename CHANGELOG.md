@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.3 (2026-10-23)
+
+Round 5 repair for three manifest and target handling gaps found by adversarial validation.
+
+- Fixed: a package.json carrying a byte order mark prefix was treated as absent, so a postinstall curl pipe shell dropper verdicted VETTED with zero findings and a note claiming no package.json was found. JSON parsing now strips a leading byte order mark first, so a BOM-prefixed manifest is parsed and its install scripts are inventoried and graded like any other manifest. The same false absent treatment applied to any other unparseable manifest, such as one with a trailing comma.
+- New rules MANIFEST-UNPARSEABLE and MANIFEST-UNREADABLE (both medium): a package.json or server.json that is present but unparseable, unreadable, oversize and skipped, or not a regular file now raises a finding naming the manifest and the reason, and the report note states that the manifest is present but could not be audited instead of claiming it was not found. The scan is partial in that state, so the verdict is floored at REVIEW and VETTED is unreachable until the manifest can be read.
+- Fixed: vet on a non-directory target (a regular file, a FIFO, or /dev/null) returned VETTED at exit 0. It is now a usage error: the CLI reports that the target is not a directory on stderr and exits 2, matching the factory siblings, and a nonexistent target exits 2 as well.
+- Fixed: a SKILL.md instruction to read a credential file (~/.aws/credentials, ~/.ssh/id_rsa) and send a summary onward verdicted VETTED with zero findings. Diagnosis: the file was scanned and the DESC-EXFIL pattern was present and identical in the published build and the source, but the pattern could never match a path shaped credential reference: its bounded spans forbade dot characters, and the credential paths it names are full of dots (~/.aws, ~/.ssh, .env, a collector URL), and its noun group opened with a word boundary that an alternative starting with ~ or . can never satisfy after a space or a slash. The spans now treat a dot followed by a non-space character as part of a path or host token and a dot followed by a space as the sentence boundary, and the noun group opens with a lookbehind. The fixture now flags DESC-EXFIL at high and verdicts REVIEW, with controls for a credential read with no send, a send with no credential read, and a cross-sentence shape.
+- Fixed: a reverse shell composed from parts in an install-executed script (a socket connection, a spawned /bin/sh, and pipes joining them, with no /dev/tcp, nc -e, or dup2 text) graded REVIEW through SCRIPT-DROPPER alone. The composition now fires SCRIPT-REVERSE-SHELL at critical and verdicts DO-NOT-INSTALL, consistent with the literal reverse shell shapes and the critical download-and-execute shapes. A benign socket client with no shell pipe keeps its previous grade.
+- Regression tests in test/round5.test.ts cover the BOM dropper, a BOM benign control, a download-only BOM control, the trailing comma floor, the oversize and unreadable and directory shaped skipped manifests, the non-directory exit codes, the credential read plus send instruction with its controls, and the socket plus shell pipe composition with its controls.
+
 ## 0.1.2 (2026-10-23)
 
 Fix for a verdict-level false positive found by fresh-estate production validation (S4-1).
