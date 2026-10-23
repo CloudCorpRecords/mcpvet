@@ -35,13 +35,14 @@ CLI exit codes: 0 when the verdict is VETTED, 1 for REVIEW or DO-NOT-INSTALL, 2 
 | Install scripts | preinstall, install, postinstall, and prepare scripts in package.json, with dropper shapes (remote download piped to a shell) graded critical |
 | Bundled scripts | Reverse shell shapes, one file that both reads a credential store and makes network requests, persistence touches (session hooks, scheduled tasks, autostart entries), download-and-execute droppers |
 | Description language | Tool descriptions, package descriptions, and SKILL.md text carrying instruction or exfiltration language: override prior instructions, hide actions from the user, send credential material onward, run shell commands from prose |
+| Documentation download-and-execute | A download-and-execute step declared as text anywhere in the package (SKILL.md prerequisites, READMEs, other docs, bundled scripts): a remote download piped or substituted into a shell or interpreter, or downloaded and run on the same line. Graded critical, like the same shape in autostart configs and install scripts. A download with no execution step does not draw this finding |
 | Mismatches | Declared tools missing from code, undeclared tools present in code, server.json and package.json disagreeing on name or version |
 | Pinning | Missing version fields, moving tags such as latest or *, registry entries with no version, unpinned container references |
 | Typosquat | Target and package names at edit distance 1 (or 2 for long names) from a bundled list of well-known MCP server names |
 
 ## Verdict rules
 
-- DO-NOT-INSTALL: at least one critical finding. Reverse shells, credential stealers, install droppers, and curl pipe shell autostarts land here.
+- DO-NOT-INSTALL: at least one critical finding. Reverse shells, credential stealers, install droppers, curl pipe shell autostarts, and download-and-execute steps declared in skill documentation land here.
 - REVIEW: at least one high or medium finding and no criticals. Dangerous capability combos, undeclared tools, typosquats, env harvesting configs, and unpinned autostarts land here.
 - VETTED: no critical, high, or medium findings. Info and low findings (such as the autostart inventory itself) are still reported as evidence.
 

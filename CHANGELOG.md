@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 (2026-10-22)
+
+Emergency repair for a genuine detection gap found by incident validation.
+
+- Fixed: a skill whose SKILL.md declares a download-and-execute prerequisite step (a remote download piped into a shell) verdicted VETTED with zero findings on 0.1.0. The capability inventory recorded the line as a network capability, but no finding rule fired: the script-shape rules only run on script files, and the description language rules grade prose commands at medium and require a run or execute verb on the line.
+- New rule DOC-DOWNLOAD-EXEC (critical): download-and-execute shapes declared as text anywhere in the package (SKILL.md, READMEs, other docs, bundled scripts) now raise a critical finding and escalate the verdict to DO-NOT-INSTALL, graded like the same shape in autostart configs (CONFIG-CURL-PIPE) and install scripts (INSTALL-DROPPER). Pipe and chained forms require a remote reference between the downloader and the execution step, so a download with no execution step, and alternation lists inside pattern literals, do not draw the finding.
+- Regression tests cover the shape in SKILL.md, the same shape in a plain README, and a download-only control.
+
 ## 0.1.0 (2026-10-22)
 
 First release.
