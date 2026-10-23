@@ -18,7 +18,7 @@ import type {
 } from "./types.js";
 import { CREDENTIAL_ENV_RE, CREDENTIAL_STORE_RE, typosquatMatch } from "./known.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 
 export const MAX_FILES = 2000;
 const MAX_FILE_BYTES = 512 * 1024;
@@ -372,6 +372,47 @@ function scanScriptShapes(
   }
 }
 
+// Download-and-execute shapes declared as text anywhere in a package:
+// a remote download piped or substituted straight into a shell or another
+// interpreter, or downloaded and then run on the same line. The ClawHavoc
+// skill wave carried this shape as a prerequisite step inside SKILL.md
+// prose, where the script-shape rules above never look because they only
+// run on script files and the description rules only grade prose commands
+// at medium. A pipe into a shell is the same shape the config audit and
+// the install script audit already grade critical, so it is critical here
+// too, in whatever file declares it.
+// The pipe and chained forms require a remote reference (a URL scheme or
+// a dotted host with a path) between the downloader and the execution
+// step. A bare downloader name followed by a shell word is not enough:
+// that looser shape also matches alternation lists inside other tools'
+// pattern literals, which are documentation of the shape, not the shape.
+const DOWNLOAD_EXEC_RES: RegExp[] = [
+  /\b(curl|wget)\b[^|\n]*?(?:https?:\/\/|ftp:\/\/|[\w.-]+\.[a-z]{2,}\/)[^|\n]*\|\s*(sudo\s+)?(sh|bash|zsh|dash|fish|python3?|node|perl|ruby)\b/,
+  /\b(sh|bash|zsh|dash|fish)\b[^\n]*<\(\s*(curl|wget)\b/,
+  /\b(sh|bash|zsh|dash|fish)\b[^\n]*\$\(\s*(curl|wget)\b/,
+  /\beval\b[^\n]*\$\(\s*(curl|wget)\b/,
+  /\b(curl|wget)\b[^&\n]*?(?:https?:\/\/|ftp:\/\/|[\w.-]+\.[a-z]{2,}\/)[^&\n]*&&\s*(sudo\s+)?(sh|bash|zsh|dash)\s/,
+  /\b(curl|wget)\b[^&\n]*?(?:https?:\/\/|ftp:\/\/|[\w.-]+\.[a-z]{2,}\/)[^&\n]*&&\s*(sudo\s+)?\.\/[\w.-]+\.(sh|bash)\b/,
+];
+
+function scanDownloadExec(findings: Finding[], f: FileText): void {
+  // Client configs and package.json install scripts already grade this
+  // exact shape critical under CONFIG-CURL-PIPE and INSTALL-DROPPER;
+  // do not double-count the same line under a second rule.
+  if (isConfigFile(f.rel) || basename(f.rel) === "package.json") return;
+  let best: { line: number; evidence: string } | null = null;
+  for (const re of DOWNLOAD_EXEC_RES) {
+    const hit = firstHit(f.lines, re);
+    if (hit && (!best || hit.line < best.line)) best = hit;
+  }
+  if (!best) return;
+  findings.push({
+    rule: "DOC-DOWNLOAD-EXEC", severity: "critical", file: f.rel, line: best.line,
+    evidence: best.evidence,
+    detail: "Package text declares a download-and-execute step: a remote download is piped or substituted straight into a shell or interpreter, so remote code runs with the user's permissions before the skill or server is ever used. This is the download-and-execute prerequisite shape from the ClawHavoc skill wave, graded critical like the same shape in autostart configs and install scripts.",
+  });
+}
+
 
 export function vetPath(rootInput: string): VetReport {
   const root = resolve(rootInput);
@@ -493,6 +534,10 @@ export function vetPath(rootInput: string): VetReport {
     }
   }
   capabilities.sort((a, b) => a.file.localeCompare(b.file) || a.kind.localeCompare(b.kind));
+
+  // Download-and-execute declarations can sit in any file in the package:
+  // SKILL.md prerequisites, READMEs, bundled scripts, or plain docs.
+  for (const f of files) scanDownloadExec(findings, f);
 
   // SKILL.md audit.
   let skillName = "";
