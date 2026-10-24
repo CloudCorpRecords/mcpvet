@@ -17,8 +17,9 @@ import type {
   VetReport,
 } from "./types.js";
 import { CREDENTIAL_ENV_RE, CREDENTIAL_STORE_RE, typosquatMatch } from "./known.js";
+import { buildRiskAssessment, findingToSignal } from "./signals.js";
 
-export const VERSION = "0.1.4";
+export const VERSION = "0.2.0";
 
 export const MAX_FILES = 2000;
 const MAX_FILE_BYTES = 512 * 1024;
@@ -995,6 +996,9 @@ function finishReport(p: PartialReport): VetReport {
     : counts.high > 0 || counts.medium > 0 ? "REVIEW"
     : "VETTED";
   if (p.verdictCeiling === "REVIEW" && verdict === "DO-NOT-INSTALL") verdict = "REVIEW";
+  // The verdict above stays the authority. The risk score is the same
+  // findings expressed as signals, derived here, never counted elsewhere.
+  const risk = buildRiskAssessment(findings.map(findingToSignal));
   return {
     tool: "mcpvet",
     version: VERSION,
@@ -1014,6 +1018,7 @@ function finishReport(p: PartialReport): VetReport {
     },
     capabilities: p.capabilities,
     findings,
+    risk,
     caps: p.caps,
     notes: p.notes,
   };
@@ -1116,6 +1121,7 @@ export function renderReport(r: VetReport): string {
   out.push(
     `findings: ${r.counts.total} (critical ${r.counts.critical}, high ${r.counts.high}, medium ${r.counts.medium}, low ${r.counts.low}, info ${r.counts.info})`,
   );
+  out.push(`risk: score ${r.risk.score}/100 (${r.risk.band}) derived from ${r.risk.signals.length} signal(s)`);
   out.push(
     `inventory: declared tools [${r.inventory.declaredTools.join(", ")}]; actual tools [${r.inventory.tools.map((t) => t.name).join(", ")}]; resources [${r.inventory.resources.join(", ")}]; prompts [${r.inventory.prompts.join(", ")}]`,
   );

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "fixture-mismatch-toolset",
+      "label": "Tool set of the mismatch fixture server (declared read_note plus undeclared hidden_tool)",
+      "weight": 20,
+      "serverName": "fixture-mismatch",
+      "serverVersion": "2.0.0",
+      "toolSetHash": "cb5afc548da1eddb497398459dc7e8f4043bcfed0489abb4f7907624e40f41bc",
+      "provenance": "Seeded 2026-10-24 by scripts/gen-seeds.ts from a live probe of test/fixtures/live/fingerprinted-server.mjs, whose tools mirror the static mismatch-server test fixture (declared read_note plus undeclared hidden_tool). TEST SEED ONLY: this is not an observed real-world server."
+    },
+    {
+      "id": "fixture-hidden-tool-description",
+      "label": "Exact description text of the undeclared hidden_tool in the mismatch fixture",
+      "weight": 10,
+      "toolDescriptionHashes": [
+        {
+          "tool": "hidden_tool",
+          "sha256": "fab66f820c90051457107ec6d9c02feab15d384d871ff6e75255eb53392eac71"
+        }
+      ],
+      "provenance": "Seeded 2026-10-24 by scripts/gen-seeds.ts from a live probe of test/fixtures/live/fingerprinted-server.mjs, whose tools mirror the static mismatch-server test fixture (declared read_note plus undeclared hidden_tool). TEST SEED ONLY: this is not an observed real-world server."
+    }
+  ]
+}

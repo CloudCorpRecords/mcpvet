@@ -1,10 +1,11 @@
 /**
- * mcpvet MCP server. Tools: vet_path, vet_package.
+ * mcpvet MCP server. Tools: vet_path, vet_package, probe_server.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { VERSION, vetPackage, vetPath } from "./vet.js";
+import { vetLive } from "./live.js";
 
 const server = new McpServer({ name: "mcpvet", version: VERSION });
 
@@ -28,6 +29,20 @@ server.tool(
   },
   async ({ name }) => {
     const report = await vetPackage(name, fetch as never);
+    return { content: [{ type: "text" as const, text: JSON.stringify(report, null, 2) }] };
+  },
+);
+
+server.tool(
+  "probe_server",
+  "Live-probe a stdio MCP server command: spawns it twice, runs initialize plus tools/list both times, and diffs the answers (probe parity), matches the presented tool set and descriptions against exact-hash fingerprints, and derives a server-level risk score from the recorded signals. WARNING: unlike vet_path and vet_package, this EXECUTES the given command on this machine, twice. Live evidence never yields DO-NOT-INSTALL; the harshest live verdict is REVIEW. A probe refused for auth reasons is recorded as a pass; a timeout records no signal.",
+  {
+    command: z.string().describe("Server executable to spawn, e.g. node or npx"),
+    args: z.array(z.string()).optional().describe("Arguments for the command, e.g. the server script path"),
+    timeoutMs: z.number().int().positive().optional().describe("Per-probe timeout in milliseconds (default 15000)"),
+  },
+  async ({ command, args, timeoutMs }) => {
+    const report = await vetLive({ command, args: args ?? [] }, { timeoutMs });
     return { content: [{ type: "text" as const, text: JSON.stringify(report, null, 2) }] };
   },
 );

@@ -4,6 +4,7 @@
  *
  *   mcpvet vet [path] [--json]
  *   mcpvet vet-package <name[@version]> [--json]
+ *   mcpvet probe [--timeout-ms <ms>] [--json] -- <command> [args...]
  *   mcpvet mcp
  *   mcpvet --version
  *
@@ -17,7 +18,8 @@
  * still exiting 0, which is how agents and CI silently lose reports.
  */
 import { renderReport, VERSION, vetPackage, vetPath } from "./vet.js";
-import type { VetReport } from "./types.js";
+import { renderLiveReport, vetLive } from "./live.js";
+import type { LiveReport, VetReport } from "./types.js";
 
 function exitBrokenPipe(): never {
   process.exit(141);
@@ -47,6 +49,7 @@ function usage(): never {
   console.error(`Usage:
   mcpvet vet [path] [--json]
   mcpvet vet-package <name[@version]> [--json]
+  mcpvet probe [--timeout-ms <ms>] [--json] -- <command> [args...]
   mcpvet mcp
   mcpvet --version`);
   process.exit(2);
@@ -77,6 +80,28 @@ async function main(): Promise<void> {
       if (!positional[0]) usage();
       const report = await vetPackage(positional[0], fetch as never);
       await emit(asJson ? JSON.stringify(report, null, 2) : renderReport(report), exitCodeFor(report));
+    } else if (cmd === "probe") {
+      // Everything after -- is the server command line. The command is
+      // EXECUTED (twice); that is the documented difference from vet.
+      const sep = rest.indexOf("--");
+      if (sep < 0) usage();
+      const serverArgv = rest.slice(sep + 1);
+      if (!serverArgv[0]) usage();
+      const before = rest.slice(0, sep);
+      let timeoutMs: number | undefined;
+      const tIdx = before.indexOf("--timeout-ms");
+      if (tIdx >= 0) {
+        timeoutMs = Number(before[tIdx + 1]);
+        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) usage();
+      }
+      const report: LiveReport = await vetLive(
+        { command: serverArgv[0], args: serverArgv.slice(1) },
+        { timeoutMs },
+      );
+      await emit(
+        asJson ? JSON.stringify(report, null, 2) : renderLiveReport(report),
+        report.verdict === "VETTED" ? 0 : 1,
+      );
     } else {
       usage();
     }
