@@ -36,9 +36,14 @@ export function buildRiskAssessment(signals: Signal[]): RiskAssessment {
   let sum = 0;
   for (const s of signals) {
     if (s.kind === "control") continue;
+    // Weights are data as much as code: fingerprint entries load from a
+    // JSON file. A non-finite weight must degrade to no contribution
+    // rather than poison the sum into NaN or infinity, whose band
+    // would silently fall through to high.
+    if (!Number.isFinite(s.weight)) continue;
     sum += s.weight;
   }
-  const score = Math.min(100, sum);
+  const score = Math.max(0, Math.min(100, sum));
   return { score, band: bandForScore(score), signals };
 }
 

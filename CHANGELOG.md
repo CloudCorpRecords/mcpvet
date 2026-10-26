@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 (2026-10-25)
+
+Risk score hardening plus the first dedicated edge case suite for the 0.2.0 signal, fingerprint, and hashing surfaces.
+
+- Fixed: buildRiskAssessment could be poisoned by a single malformed signal weight. Fingerprint entries load from a JSON data file, so their weights are data, and a non-finite weight (NaN or infinity) previously summed into a non-finite score whose band silently fell through to high; a negative weight could likewise drive the score below zero. Non-finite weights now contribute nothing, and the derived score is clamped to the documented 0 to 100 range on both ends. Every other input derives exactly the score it derived in 0.2.0.
+- Tests: new test/signals.test.ts (16 tests, the two score integrity cases red first on 0.2.0 code) covers bandForScore on both sides of every band boundary, the 100 cap, the zero floor, control signals carrying a nonzero weight, canonicalJson key sorting with array order preserved, hashToolSet invariance to nested schema key order and sensitivity to schema array order and to a missing versus empty description, matchFingerprints gating (a server name or version mismatch defeats an exact hash, a missing tool or undefined description defeats a description hash, an identity-only entry matches nothing), and findingToSignal weights and probed formatting for every severity.
+
 ## 0.2.0 (2026-10-24)
 
 Lane A of the dyva-patterns adoption: live probing, exact-hash fingerprints, and a derived server-level risk score. Static vetting behavior, verdict rules, and report determinism are unchanged.

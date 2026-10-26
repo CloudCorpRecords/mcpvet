@@ -53,7 +53,7 @@ export async function probeServer(
     cwd: spec.cwd,
     stderr: "pipe",
   });
-  const client = new Client({ name: "mcpvet-probe", version: "0.2.0" });
+  const client = new Client({ name: "mcpvet-probe", version: "0.2.1" });
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {

@@ -19,7 +19,7 @@ import type {
 import { CREDENTIAL_ENV_RE, CREDENTIAL_STORE_RE, typosquatMatch } from "./known.js";
 import { buildRiskAssessment, findingToSignal } from "./signals.js";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.2.1";
 
 export const MAX_FILES = 2000;
 const MAX_FILE_BYTES = 512 * 1024;
