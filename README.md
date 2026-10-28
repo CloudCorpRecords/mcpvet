@@ -1,5 +1,7 @@
 # mcpvet
 
+[![npm version](https://img.shields.io/npm/v/@reneturcios/mcpvet.svg)](https://www.npmjs.com/package/@reneturcios/mcpvet) [![npm downloads](https://img.shields.io/npm/dm/@reneturcios/mcpvet.svg)](https://www.npmjs.com/package/@reneturcios/mcpvet) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.CloudCorpRecords%2Fmcpvet-blue)](https://registry.modelcontextprotocol.io/)
+
 Vet MCP servers and agent skills before you install them.
 
 In early 2026 the ClawHavoc wave put 1,184 malicious skills on a public skill marketplace from just 12 accounts: credential stealers and reverse shells dressed up as helpful agent skills, inheriting whatever permissions the agent itself had. Only a small minority of organizations audit the MCP servers they install, and almost none audit skill packs. The install click is the trust decision, and it usually happens with no evidence at all.
@@ -85,3 +87,5 @@ Live mode (`probe`) has its own verdict rules, deliberately capped: any scoring 
 Part of the Security Wave: hookcheck (persistence hooks), actionpin (Actions pinning), injectcheck (prompt injection in agent-read content), tracewatch (observability and root cause), mcpvet (pre-install vetting).
 
 MIT.
+
+If mcpvet saved you time, star this repo: it helps other developers find it.
